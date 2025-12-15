@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OSHA Forklift Certification Exam</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { 
+      font-family: Arial, sans-serif; 
+      background: #2c3e50; 
+      display: flex; 
+      flex-direction: column; 
+      align-items: center; 
+      padding: 20px;
+      color: white;
+    }
+    h1 { margin-bottom: 10px; }
+    #gameCanvas {
+      border: 4px solid #ecf0f1;
+      background: #7f8c8d;
+      border-radius: 5px;
+    }
+    #instructions {
+      margin-top: 15px;
+      text-align: center;
+      opacity: 0.8;
+    }
+  </style>
+</head>
+<body>
+  <h1>🚜 OSHA Forklift Certification Exam</h1>
+  <canvas id="gameCanvas" width="800" height="500"></canvas>
+  <div id="instructions">
+    <p>Arrow keys to move | Hold SPACE to clamp boxes | Push boxes to the green zone | Avoid red obstacles!</p>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Forklift
+    const forklift = { x: 100, y: 250, width: 60, height: 40, speed: 4 };
+    
+    // Character image
+    let characterImg = new Image();
+    characterImg.src = 'gooby.png';
+
+    // Supervisor image
+    let supervisorImg = new Image();
+    supervisorImg.src = 'goob-supervisor.png';
+
+    // Level system
+    let currentLevel = 1;
+    let bricks = [];
+    let obstacles = [];
+    let goal = {};
+
+    const levels = [
+      { // Level 1 - Easy
+        bricks: [
+          { x: 300, y: 200, width: 50, height: 30 },
+          { x: 400, y: 300, width: 50, height: 30 },
+        ],
+        obstacles: [],
+        goal: { x: 680, y: 150, width: 100, height: 200 }
+      },
+      { // Level 2 - More bricks
+        bricks: [
+          { x: 250, y: 150, width: 50, height: 30 },
+          { x: 300, y: 250, width: 50, height: 30 },
+          { x: 350, y: 350, width: 50, height: 30 },
+          { x: 450, y: 200, width: 50, height: 30 },
+        ],
+        obstacles: [],
+        goal: { x: 680, y: 150, width: 100, height: 200 }
+      },
+      { // Level 3 - Obstacles introduced
+        bricks: [
+          { x: 200, y: 150, width: 50, height: 30 },
+          { x: 200, y: 300, width: 50, height: 30 },
+          { x: 350, y: 220, width: 50, height: 30 },
+        ],
+        obstacles: [
+          { x: 400, y: 0, width: 30, height: 180 },
+          { x: 400, y: 280, width: 30, height: 220 },
+        ],
+        goal: { x: 680, y: 180, width: 100, height: 140 }
+      },
+      { // Level 4 - Maze
+        bricks: [
+          { x: 150, y: 100, width: 50, height: 30 },
+          { x: 150, y: 250, width: 50, height: 30 },
+          { x: 150, y: 400, width: 50, height: 30 },
+        ],
+        obstacles: [
+          { x: 250, y: 0, width: 25, height: 200 },
+          { x: 250, y: 300, width: 25, height: 200 },
+          { x: 450, y: 100, width: 25, height: 200 },
+          { x: 450, y: 400, width: 25, height: 100 },
+        ],
+        goal: { x: 680, y: 200, width: 100, height: 100 }
+      },
+      { // Level 5 - Tight squeeze
+        bricks: [
+          { x: 100, y: 80, width: 50, height: 30 },
+          { x: 100, y: 230, width: 50, height: 30 },
+          { x: 100, y: 380, width: 50, height: 30 },
+          { x: 300, y: 150, width: 50, height: 30 },
+          { x: 300, y: 300, width: 50, height: 30 },
+        ],
+        obstacles: [
+          { x: 200, y: 0, width: 20, height: 150 },
+          { x: 200, y: 200, width: 20, height: 100 },
+          { x: 200, y: 350, width: 20, height: 150 },
+          { x: 400, y: 50, width: 20, height: 150 },
+          { x: 400, y: 250, width: 20, height: 100 },
+          { x: 400, y: 400, width: 20, height: 100 },
+          { x: 550, y: 0, width: 20, height: 120 },
+          { x: 550, y: 380, width: 20, height: 120 },
+        ],
+        goal: { x: 680, y: 120, width: 100, height: 260 }
+      }
+    ];
+
+    function loadLevel(n) {
+      const lvl = levels[n - 1];
+      bricks = lvl.bricks.map(b => ({...b}));
+      obstacles = lvl.obstacles.map(o => ({...o}));
+      goal = {...lvl.goal};
+      forklift.x = 50;
+      forklift.y = 230;
+    }
+
+    loadLevel(currentLevel);
+
+    // Input
+    const keys = {};
+    let clamping = false;
+    let clampedBrick = null;
+    document.addEventListener('keydown', (e) => { 
+      keys[e.key] = true; 
+      if (e.code === 'Space') clamping = true;
+      e.preventDefault(); 
+    });
+    document.addEventListener('keyup', (e) => { 
+      keys[e.key] = false; 
+      if (e.code === 'Space') {
+        clamping = false;
+        clampedBrick = null;
+      }
+    });
+
+    function collides(a, b) {
+      return a.x < b.x + b.width && a.x + a.width > b.x &&
+             a.y < b.y + b.height && a.y + a.height > b.y;
+    }
+
+    function update() {
+      let dx = 0, dy = 0;
+      if (keys['ArrowUp']) dy = -forklift.speed;
+      if (keys['ArrowDown']) dy = forklift.speed;
+      if (keys['ArrowLeft']) dx = -forklift.speed;
+      if (keys['ArrowRight']) dx = forklift.speed;
+
+      // Move forklift
+      const newX = forklift.x + dx;
+      const newY = forklift.y + dy;
+      const testFork = { x: newX, y: newY, width: forklift.width, height: forklift.height };
+
+      // Check obstacle collision
+      let blocked = false;
+      obstacles.forEach(obs => {
+        if (collides(testFork, obs)) blocked = true;
+      });
+
+      if (!blocked) {
+        forklift.x = newX;
+        forklift.y = newY;
+      }
+
+      // Bounds
+      forklift.x = Math.max(0, Math.min(canvas.width - forklift.width, forklift.x));
+      forklift.y = Math.max(0, Math.min(canvas.height - forklift.height, forklift.y));
+
+      // Clamp and move bricks (only when holding space)
+      if (clamping) {
+        bricks.forEach(brick => {
+          if (collides(forklift, brick)) {
+            if (!clampedBrick) clampedBrick = brick;
+          }
+        });
+        
+        if (clampedBrick) {
+          let newBX = clampedBrick.x + dx;
+          let newBY = clampedBrick.y + dy;
+          const testBrick = { x: newBX, y: newBY, width: clampedBrick.width, height: clampedBrick.height };
+          
+          let brickBlocked = false;
+          obstacles.forEach(obs => {
+            if (collides(testBrick, obs)) brickBlocked = true;
+          });
+          
+          if (!brickBlocked) {
+            clampedBrick.x = Math.max(0, Math.min(canvas.width - clampedBrick.width, newBX));
+            clampedBrick.y = Math.max(0, Math.min(canvas.height - clampedBrick.height, newBY));
+          }
+        }
+      }
+    }
+
+    let levelComplete = false;
+    let showingMessage = false;
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw level indicator
+      ctx.fillStyle = 'white';
+      ctx.font = 'bold 16px Arial';
+      ctx.fillText('Level ' + currentLevel + ' / ' + levels.length, 10, 25);
+
+      // Draw supervisor (upper right)
+      const supBox = { x: canvas.width - 90, y: 10, width: 80, height: 80 };
+      ctx.drawImage(supervisorImg, supBox.x, supBox.y, supBox.width, supBox.height);
+
+      // Draw goal zone
+      ctx.fillStyle = '#27ae60';
+      ctx.fillRect(goal.x, goal.y, goal.width, goal.height);
+      ctx.fillStyle = 'white';
+      ctx.font = '14px Arial';
+      ctx.fillText('GOAL', goal.x + goal.width/2 - 20, goal.y + goal.height/2 + 5);
+
+      // Draw obstacles
+      obstacles.forEach(obs => {
+        ctx.fillStyle = '#e74c3c';
+        ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+        ctx.strokeStyle = '#c0392b';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(obs.x, obs.y, obs.width, obs.height);
+      });
+
+      // Draw bricks
+      bricks.forEach(brick => {
+        const inGoal = collides(brick, goal);
+        const isClamped = brick === clampedBrick;
+        ctx.fillStyle = inGoal ? '#f1c40f' : '#e67e22';
+        ctx.fillRect(brick.x, brick.y, brick.width, brick.height);
+        ctx.strokeStyle = isClamped ? '#2ecc71' : '#d35400';
+        ctx.lineWidth = isClamped ? 4 : 2;
+        ctx.strokeRect(brick.x, brick.y, brick.width, brick.height);
+      });
+
+      // Draw forklift
+      ctx.drawImage(characterImg, forklift.x, forklift.y - 10, forklift.width + 15, forklift.height + 20);
+
+      // Win check
+      const allInGoal = bricks.every(b => collides(b, goal));
+      if (allInGoal && !levelComplete) {
+        levelComplete = true;
+        setTimeout(() => {
+          if (currentLevel < levels.length) {
+            currentLevel++;
+            loadLevel(currentLevel);
+            levelComplete = false;
+          } else {
+            showingMessage = true;
+          }
+        }, 1000);
+      }
+
+      if (allInGoal) {
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#2ecc71';
+        ctx.font = 'bold 36px Arial';
+        if (showingMessage) {
+          ctx.fillText('🎉 CERTIFIED! 🎉', 250, 240);
+          ctx.font = '20px Arial';
+          ctx.fillStyle = 'white';
+          ctx.fillText('You passed all OSHA requirements!', 245, 280);
+        } else {
+          ctx.fillText('Level ' + currentLevel + ' Complete!', 250, 260);
+        }
+      }
+    }
+
+    function gameLoop() {
+      update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    gameLoop();
+  </script>
+</body>
+</html>
